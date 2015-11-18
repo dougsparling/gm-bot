@@ -6,6 +6,10 @@ trait Dice {
   def roll(faces: Int): Int
 }
 
+trait NoDice {
+  def dice = sys.error("unexpected roll")
+}
+
 trait FixedDice {
   val fixed: mutable.Stack[Int]
   def dice = new Dice {

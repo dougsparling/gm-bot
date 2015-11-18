@@ -56,6 +56,9 @@ trait RollSpecRunner {
   }
 
   private def validate(spec: RollSpec): Option[String] = spec match {
-    case RollSpec()
+    case RollSpec(_, rolls, _, _, _, DropLowest(drops)) if rolls < drops => Some("Can't drop more dice than are rolled")
+    case RollSpec(_, rolls, _, _, _, DropHighest(drops)) if rolls < drops => Some("Can't drop more dice than are rolled")
+    case RollSpec(_, _, die, _, Some(range), _) if range.start == 1 && range.end >= die => Some("All dice would be rerolled")
+    case _ => None
   }
 }
