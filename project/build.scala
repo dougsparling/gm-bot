@@ -10,7 +10,7 @@ object GmBotBuild extends Build {
   val Name = "GM Bot"
   val Version = "1.0-SNAPSHOT"
   val ScalaVersion = "2.11.7"
-  val ScalatraVersion = "2.4.0.RC3"
+  val ScalatraVersion = "2.3.0"
 
   lazy val project = Project (
     "gm-bot",
@@ -31,7 +31,7 @@ object GmBotBuild extends Build {
         "javax.servlet" % "javax.servlet-api" % "3.1.0" % "provided",
         "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.4",
         "org.scalatra" %% "scalatra-json" % ScalatraVersion,
-        "org.json4s"   %% "json4s-jackson" % "3.3.0.RC1"
+        "org.json4s" %% "json4s-jackson" % "3.3.0"
       ),
       scalateTemplateConfig in Compile <<= (sourceDirectory in Compile){ base =>
         Seq(

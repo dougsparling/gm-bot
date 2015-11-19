@@ -23,7 +23,7 @@ trait RollSpecRunner {
 
   private def rollBatch(spec: RollSpec, inProgress: List[Roll] = List(), kept: Int = 0): Batch = {
     if(kept >= spec.number) {
-      drop(spec, inProgress)
+      drop(spec, inProgress.reverse)
     } else {
       val aRoll = dice.roll(spec.die)
       if(spec.shouldReroll(aRoll)) {
@@ -56,8 +56,8 @@ trait RollSpecRunner {
   }
 
   private def validate(spec: RollSpec): Option[String] = spec match {
-    case RollSpec(_, rolls, _, _, _, DropLowest(drops)) if rolls < drops => Some("Can't drop more dice than are rolled")
-    case RollSpec(_, rolls, _, _, _, DropHighest(drops)) if rolls < drops => Some("Can't drop more dice than are rolled")
+    case RollSpec(_, rolls, _, _, _, DropLowest(drops)) if rolls <= drops => Some("Can't drop all lowest dice")
+    case RollSpec(_, rolls, _, _, _, DropHighest(drops)) if rolls <= drops => Some("Can't drop all highest dice")
     case RollSpec(_, _, die, _, Some(range), _) if range.start == 1 && range.end >= die => Some("All dice would be rerolled")
     case _ => None
   }
