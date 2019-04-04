@@ -2,11 +2,21 @@
 
 ## Build & Run ##
 
+Developers, run inside SBT:
+
 ```sh
-$ cd GM_Bot
-$ ./sbt
-> container:start
-> browse
+$ cd gmbot
+$ sbt
+$ jetty:start
+```
+
+Operators, deploy and run a phat jar:
+
+```sh
+$ cd gmbot
+$ sbt clean assembly
+$ java -jar **/*-assembly-**.jar
 ```
 
 If `browse` doesn't launch your browser, manually open [http://localhost:8080/](http://localhost:8080/) in your browser.
+
