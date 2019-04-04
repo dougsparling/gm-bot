@@ -18,7 +18,7 @@ trait FixedDice {
 }
 
 trait SecureDice {
-  lazy val roller = java.security.SecureRandom.getInstanceStrong
+  lazy val roller = new java.security.SecureRandom()
   def dice = new Dice {
     override def roll(faces: Int) = roller.nextInt(faces) + 1
   }

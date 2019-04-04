@@ -71,7 +71,7 @@ class RollSpecParserSpec extends Specification with ParserMatchers { def is = "S
       6. Fail to drop nothing (low)                  ${drop().lowZero}
     """
 
-  def everything = RollSpecParser.roll must succeedOn("6 times 5d6 + 1 reroll 1 to 2 drop lowest 2").withResult(RollSpec(6, 5, 6, 1, Some(Range(1, 2)), DropLowest(2)))
+  def everything = RollSpecParser.roll must succeedOn("6 times 5d6 + 1 reroll 1 to 2 drop lowest 2").withResult(RollSpec(6, 5, 6, 1, Some(1 to 2), DropLowest(2)))
 
   override val parsers = RollSpecParser
 
@@ -107,10 +107,10 @@ class RollSpecParserSpec extends Specification with ParserMatchers { def is = "S
   }
 
   case class rr() {
-    def rr6 = RollSpecParser.roll must succeedOn("5x3d6+5 reroll 6").withResult(RollSpec(5, 3, 6, 5, Some(Range(6, 6)), NoDrop))
+    def rr6 = RollSpecParser.roll must succeedOn("5x3d6+5 reroll 6").withResult(RollSpec(5, 3, 6, 5, Some(6 to 6), NoDrop))
     def rr0 = RollSpecParser.roll must failOn("5x3d6+5 reroll 0")
-    def rr56 = RollSpecParser.roll must succeedOn("5x3d6+5 reroll 5 to 6").withResult(RollSpec(5, 3, 6, 5, Some(Range(5, 6)), NoDrop))
-    def rr65 = RollSpecParser.roll must succeedOn("5x3d6+5 reroll 6 to 5").withResult(RollSpec(5, 3, 6, 5, Some(Range(5, 6)), NoDrop))
+    def rr56 = RollSpecParser.roll must succeedOn("5x3d6+5 reroll 5 to 6").withResult(RollSpec(5, 3, 6, 5, Some(5 to 6), NoDrop))
+    def rr65 = RollSpecParser.roll must succeedOn("5x3d6+5 reroll 6 to 5").withResult(RollSpec(5, 3, 6, 5, Some(5 to 6), NoDrop))
   }
 
   case class drop() {

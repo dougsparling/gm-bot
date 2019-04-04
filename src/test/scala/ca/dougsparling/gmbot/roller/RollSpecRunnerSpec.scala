@@ -9,7 +9,7 @@ import scala.collection.mutable
 /**
   * Created by Doug on 14/11/2015.
   */
-class RollSpecRunnerSpec extends Specification { def is = "Specification for a die roller".title ^ s2"""
+class RollSpecRunnerSpec extends Specification { def is = "for a die roller".title ^ s2"""
   A RollSpecRunner can:         $p
     1. Execute a DiceSpec       $execute
     2. Catch invalid DiceSpecs  $invalid
@@ -35,9 +35,9 @@ class RollSpecRunnerSpec extends Specification { def is = "Specification for a d
   case class specs() {
     val roller = new RollSpecRunner with NoDice
 
-    def dropLowest = roller.run(RollSpec(1, 10, 6, 0, None, DropLowest(11))) must beFailedRoll("Can't drop more dice than are rolled")
+    def dropLowest = roller.run(RollSpec(1, 10, 6, 0, None, DropLowest(11))) must beFailedRoll("Can't drop all lowest dice")
 
-    def dropHighest = roller.run(RollSpec(1, 10, 6, 0, None, DropHighest(11))) must beFailedRoll("Can't drop more dice than are rolled")
+    def dropHighest = roller.run(RollSpec(1, 10, 6, 0, None, DropHighest(11))) must beFailedRoll("Can't drop all highest dice")
 
     def rerolls = roller.run(RollSpec(1, 1, 10, 0, Some(Range.inclusive(1,10)), NoDrop)) must beFailedRoll("All dice would be rerolled")
 

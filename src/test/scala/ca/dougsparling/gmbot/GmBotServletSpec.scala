@@ -18,11 +18,11 @@ class GmBotServletSpec extends ScalatraSpec { def is =
   }
 
   def postRollJson = postRoll("5d6") {
-    header must havePair("Content-Type" -> "application/json; charset=UTF-8")
+    header must havePair("Content-Type" -> "application/json;charset=utf-8")
   }
 
   def postRollSuccess = postRoll("5d6") {
-    body must beEqualTo("{}")
+    body must =~("Rolled for doug: \\d{1,2}")
   }
 
   def postRollError = postRoll("5d0") {
@@ -30,6 +30,6 @@ class GmBotServletSpec extends ScalatraSpec { def is =
   }
 
   def postRoll[A](text: String)(f: => A) = {
-    post("/roll", Map("text" -> text, "command" -> "/roll"))(f)
+    post("/roll", Map("text" -> text, "command" -> "/roll", "user_name" -> "doug"))(f)
   }
 }

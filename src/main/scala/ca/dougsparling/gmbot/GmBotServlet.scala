@@ -2,18 +2,25 @@ package ca.dougsparling.gmbot
 
 import ca.dougsparling.gmbot.parser.{RollSpec, RollSpecParser}
 import ca.dougsparling.gmbot.roller._
+import org.slf4j.{Logger, LoggerFactory}
 import org.json4s.{DefaultFormats, Formats}
+import org.scalatra.json._
 import org.scalatra.Ok
-import org.scalatra.json.JacksonJsonSupport
 
 class GmBotServlet extends GmBotStack with JacksonJsonSupport {
 
+  protected lazy val logger =  LoggerFactory.getLogger(getClass)
   protected implicit lazy val jsonFormats: Formats = DefaultFormats
   protected lazy val secureRoller = new RollSpecRunner with SecureDice
+
+  get("/health") {
+    Ok("hello")
+  }
 
   post("/roll") {
     val req = parseRequest()
     val parseResult = RollSpecParser.parseAll(RollSpecParser.roll, req.text)
+    logger.info(s"Received $req")
     parseResult match {
       case RollSpecParser.NoSuccess(msg, next) => helpMessage(msg, req.command)
       case RollSpecParser.Success(spec, _) if spec.die >= 10000 => Ok(slackResponse(s"Sorry, I can't find a ${spec.die} sided die."))
@@ -27,6 +34,10 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
         }
       }
     }
+  }
+
+  before() {
+    contentType = formats("json")
   }
 
   def parseRequest() = {
