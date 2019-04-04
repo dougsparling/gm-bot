@@ -15,8 +15,8 @@ Operators, deploy and run a phat jar:
 ```sh
 $ cd gmbot
 $ sbt clean assembly
-$ java -jar **/*-assembly-**.jar
+$ PORT=8080 java -jar **/*-assembly-**.jar
 ```
 
-If `browse` doesn't launch your browser, manually open [http://localhost:8080/](http://localhost:8080/) in your browser.
+Open [http://localhost:8080/health](http://localhost:8080/health) in your browser to verify that the app is running.
 
