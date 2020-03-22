@@ -2,9 +2,9 @@ val ScalatraVersion = "2.6.5"
 
 organization := "ca.dougsparling"
 
-name := "GM Bot"
+name := "gm-bot"
 
-version := "0.1.0-SNAPSHOT"
+version := "1.0.0"
 
 scalaVersion := "2.12.6"
 
