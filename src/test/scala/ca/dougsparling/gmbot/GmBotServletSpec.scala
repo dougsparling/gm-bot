@@ -4,12 +4,14 @@ import org.scalatra.test.specs2._
 
 // For more on Specs2, see http://etorreborre.github.com/specs2/guide/org.specs2.guide.QuickStart.html
 class GmBotServletSpec extends ScalatraSpec { def is =
-  "POST /roll on GmBotServlet"                     ^
-    "should return status 200"                     ! postRoll200^
-    "should have content-type application/json"    ! postRollJson^
-    "should have a Slack response"                 ! postRollSuccess^
-    "should report parse errors"                   ! postRollError^
-                                                   end
+  "POST /roll on GmBotServlet"                                    ^
+    "should return status 200"                                    ! postRoll200^
+    "should have content-type application/json"                   ! postRollJson^
+    "should have a Slack response"                                ! postRollSuccess^
+    "should report parse errors"                                  ! postRollError^
+    "should approximate when too many dice are rolled"            ! postRollApproxManyDice^
+    "should approximate when too many faces are rerolled"         ! postRollApproxManyRerolls^
+                                                                  end
 
   addServlet(classOf[GmBotServlet], "/*")
 
@@ -27,6 +29,14 @@ class GmBotServletSpec extends ScalatraSpec { def is =
 
   def postRollError = postRoll("5d0") {
     body must contain("Help")
+  }
+
+  def postRollApproxManyDice = postRoll("2 times 9999d6") {
+    body must contain("statistical approximation")
+  }
+
+  def postRollApproxManyRerolls = postRoll("2000d6 reroll 1 to 5") {
+    body must contain("statistical approximation")
   }
 
   def postRoll[A](text: String)(f: => A) = {
