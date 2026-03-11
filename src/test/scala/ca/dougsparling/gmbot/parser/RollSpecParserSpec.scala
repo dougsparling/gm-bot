@@ -73,6 +73,12 @@ class RollSpecParserSpec extends Specification with ParserMatchers { def is = "S
 
   def everything = RollSpecParser.roll must succeedOn("6 times 5d6 + 1 reroll 1 to 2 drop lowest 2").withResult(RollSpec(6, 5, 6, 1, Some(1 to 2), DropLowest(2)))
 
+  def rollPrefix = s2"""
+    The optional "roll" prefix should
+      1. Be accepted before a roll  ${RollSpecParser.roll must succeedOn("roll d6").withResult(RollSpec(1, 1, 6, 0, None, NoDrop))}
+      2. Not be required            ${RollSpecParser.roll must succeedOn("d6").withResult(RollSpec(1, 1, 6, 0, None, NoDrop))}
+    """
+
   override val parsers = RollSpecParser
 
   case class die() {
