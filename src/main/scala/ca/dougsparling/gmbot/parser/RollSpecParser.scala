@@ -12,8 +12,8 @@ object RollSpecParser extends RegexParsers {
   def roll: Parser[RollSpec] = "roll".? ~> repeat.? ~ times.? ~ die ~ mod.? ~ reroll.? ~ drop.? ^^
     { case r ~ t ~ d ~ m ~ o ~ p => RollSpec(r.getOrElse(1), t.getOrElse(1), d, m.getOrElse(0), o, p.getOrElse(NoDrop)) }
 
-  private def repeat = natural(2) <~ ("x"|"times")
-  private def times = natural(4)
+  private def repeat = natural(4) <~ ("x"|"times")
+  private def times = natural(9)
   private def die = "d" ~> natural(9)
   private def mod = ("+"|"-") ~ whole(9) ^^ {
       case "+" ~ num => num
