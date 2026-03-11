@@ -30,7 +30,7 @@ class RollSpecParserSpec extends Specification with ParserMatchers { def is = "S
       1. Succeed for normal rolls  ${multi()._3d6}
       2. Fail for zero dice        ${multi()._0d6}
       3. Fail for zero die         ${multi()._3d0}
-      4. Fail for too many dice    ${multi()._10000d6}
+      4. Fail for too many dice    ${multi()._billiond6}
       5. Fail for too large die    ${multi()._1dTooMany}
     """
 
@@ -91,7 +91,7 @@ class RollSpecParserSpec extends Specification with ParserMatchers { def is = "S
     def _3d6       = RollSpecParser.roll must succeedOn("3d6").withResult(RollSpec(1, 3, 6, 0, None, NoDrop))
     def _0d6       = RollSpecParser.roll must failOn("0d6")
     def _3d0       = RollSpecParser.roll must failOn("3d0")
-    def _10000d6   = RollSpecParser.roll must failOn("10000d6")
+    def _billiond6   = RollSpecParser.roll must failOn("1000000000d6")
     def _1dTooMany = RollSpecParser.roll must failOn("1d9999999999")
   }
 

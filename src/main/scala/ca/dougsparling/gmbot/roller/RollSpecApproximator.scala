@@ -18,7 +18,7 @@ trait RollSpecApproximator {
     val batchStd  = math.sqrt(keptDice * dieVar)
 
     val batches = (1 to spec.repeat).map { _ =>
-      val sample = math.round(batchMean + batchStd * gaussian.nextGaussian()).toInt
+      val sample = math.round(batchMean + batchStd * gaussian.nextGaussian())
       Batch(List(Roll(sample, Kept)))
     }
     Result(batches)
