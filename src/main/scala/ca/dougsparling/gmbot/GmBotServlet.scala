@@ -72,7 +72,7 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
   }
 
   def helpMessage(hint: String, command: String) = {
-    Ok(slackResponse(s"_Help_: `$command [a times|x] [x]dy [+z] [reroll i|i to j] [drop highest|lowest [c]]`\ne.g. `4 times 4d6 drop lowest`, `d20 + 15`, `7d10+10 reroll 1 to 2`", hint))
+    Ok(slackResponse(s"_Help_: `$command [roll] [a times|x] [x]dy [+z] [reroll i|i to j] [drop highest|lowest [c]]`\ne.g. `roll 4 times 4d6 drop lowest`, `d20 + 15`, `7d10+10 reroll 1 to 2`", hint))
   }
 
   def slackResponse(text: String, attachments: String*) = {
