@@ -2,13 +2,11 @@
 
 ## Build & Run ##
 
-Developers, build and assemble with SBT. Though Java 17+ won't work with this version of SBT due to security manager limitations, so downgrade if needed:
+Developers, build and run locally with SBT (requires Java 21+):
 
 ```sh
-$ export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-11.jdk/Contents/Home
 $ cd gmbot
-$ sbt
-$ jetty:start
+$ sbt run
 ```
 
 Operators, deploy and run a phat jar:
@@ -16,7 +14,7 @@ Operators, deploy and run a phat jar:
 ```sh
 $ cd gmbot
 $ sbt clean assembly
-$ PORT=8080 java -jar **/*-assembly-**.jar
+$ PORT=8080 java -jar target/scala-3.8.2/gm-bot-assembly-1.0.0.jar
 ```
 
 Open [http://localhost:8080/health](http://localhost:8080/health) in your browser to verify that the app is running.
