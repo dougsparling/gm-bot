@@ -1,7 +1,7 @@
 package ca.dougsparling.gmbot
 
 import org.scalatra._
-import javax.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletRequest
 import collection.mutable
 
 trait GmBotStack extends ScalatraServlet {

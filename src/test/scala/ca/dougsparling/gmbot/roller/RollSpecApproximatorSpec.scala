@@ -16,7 +16,7 @@ class RollSpecApproximatorSpec extends Specification { def is = "for a roll appr
 
   // With gaussian=0, sample = round(batchMean), giving exact deterministic results.
   def approximator(gaussians: Double*) = new RollSpecApproximator with FixedGaussian {
-    val fixedGaussians = mutable.Stack(gaussians: _*)
+    val fixedGaussians = mutable.Stack(gaussians*)
   }
 
   // 9999d6: mean=3.5, batchMean=34996.5, round -> 34997

@@ -84,7 +84,7 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
 
   def slackResponse(text: String, attachments: String*) = {
     contentType = formats("json")
-    SlackResponse(text, attachments.map(Attachment))
+    SlackResponse(text, attachments.map(Attachment.apply))
   }
 
 
