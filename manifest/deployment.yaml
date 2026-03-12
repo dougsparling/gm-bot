@@ -17,6 +17,12 @@ spec:
         image: localhost:32000/gm-bot:latest
         ports:
         - containerPort: 8080
+        env:
+        - name: SLACK_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: gm-bot-secrets
+              key: SLACK_SIGNING_SECRET
 ---
 apiVersion: v1
 kind: Service

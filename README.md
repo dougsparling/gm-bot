@@ -22,4 +22,11 @@ Or run locally:
 docker run -p 8080:8080 <registry>/gm-bot
 ```
 
-And finally, the docker image can be deployed to Kubernetes using the simple manifest available in `manifest/deployment.yaml`
+And finally, the docker image can be deployed to Kubernetes using the simple manifest available in `manifest/deployment.yaml`.
+
+Before the first deploy, create the secret in the cluster manually (not tracked in git):
+
+```sh
+kubectl create secret generic gm-bot-secrets \
+  --from-literal=SLACK_SIGNING_SECRET=<secret-from-api.slack.com>
+```

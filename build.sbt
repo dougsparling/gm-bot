@@ -16,7 +16,8 @@ libraryDependencies ++= Seq(
   "org.json4s"   %% "json4s-jackson" % "4.0.7",
   "ch.qos.logback" % "logback-classic" % "1.5.32" % "runtime",
   "org.eclipse.jetty.ee10" % "jetty-ee10-webapp" % "12.1.7" % "container;compile",
-  "jakarta.servlet" % "jakarta.servlet-api" % "6.1.0" % "provided"
+  "jakarta.servlet" % "jakarta.servlet-api" % "6.1.0" % "provided",
+  "com.slack.api" % "slack-app-backend" % "1.45.3"
 )
 
 Compile / run / mainClass := Some("ca.dougsparling.JettyLauncher")
@@ -24,6 +25,7 @@ Compile / run / mainClass := Some("ca.dougsparling.JettyLauncher")
 assembly / assemblyMergeStrategy := {
   case "module-info.class"                                          => MergeStrategy.discard
   case PathList("META-INF", "versions", _, "module-info.class")    => MergeStrategy.discard
+  case PathList("META-INF", f) if f.endsWith(".kotlin_module")     => MergeStrategy.discard
   case x => (assembly / assemblyMergeStrategy).value(x)
 }
 
