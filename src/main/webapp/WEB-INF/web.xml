@@ -4,11 +4,15 @@
   xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
   version="6.0">
 
-  <!--
-    This listener loads a class in the default package called ScalatraBootstrap.
-    That class should implement org.scalatra.LifeCycle.  Your app can be
-    configured in Scala code there.
-  -->
+  <filter>
+    <filter-name>SlackSignatureFilter</filter-name>
+    <filter-class>ca.dougsparling.gmbot.SlackSignatureFilter</filter-class>
+  </filter>
+  <filter-mapping>
+    <filter-name>SlackSignatureFilter</filter-name>
+    <url-pattern>/roll</url-pattern>
+  </filter-mapping>
+
   <listener>
     <listener-class>org.scalatra.servlet.ScalatraListener</listener-class>
   </listener>
