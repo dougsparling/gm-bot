@@ -23,11 +23,21 @@ libraryDependencies ++= Seq(
 
 Compile / run / mainClass := Some("ca.dougsparling.JettyLauncher")
 
+// jcl-over-slf4j provides the same classes as commons-logging as an SLF4J bridge;
+// exclude the real commons-logging to avoid duplicate class conflicts at assembly time.
+excludeDependencies ++= Seq(
+  ExclusionRule("commons-logging", "commons-logging"),
+  ExclusionRule("javax.annotation", "javax.annotation-api")
+)
+
 assembly / assemblyMergeStrategy := {
   case "module-info.class"                                          => MergeStrategy.discard
   case PathList("META-INF", "versions", _, "module-info.class")    => MergeStrategy.discard
   case PathList("META-INF", f) if f.endsWith(".kotlin_module")     => MergeStrategy.discard
   case PathList("META-INF", "services", _*)                        => MergeStrategy.concat
+  case PathList("META-INF", "versions", _, "OSGI-INF", _*)        => MergeStrategy.first
+  case PathList("META-INF", f) if f.endsWith(".properties")        => MergeStrategy.first
+  case PathList("META-INF", f) if f.endsWith(".json")              => MergeStrategy.first
   case x => (assembly / assemblyMergeStrategy).value(x)
 }
 

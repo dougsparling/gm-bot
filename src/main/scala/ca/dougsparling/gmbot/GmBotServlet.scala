@@ -63,8 +63,9 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
         case Found(name, path)  =>
           if req.responseUrl.isEmpty then Ok(slackResponse("Error: no response_url from Slack."))
           else
-            Future { new RuleOracle(path).ask(question, req.responseUrl) }
-            Ok(ephemeralResponse(s"Looking up rules in *$name*\u2026 I'll respond shortly."))
+            val mention = if req.userId.nonEmpty then s"<@${req.userId}>" else s"@${req.who}"
+            Future { new RuleOracle(path).ask(question, req.responseUrl, mention) }
+            Ok(ephemeralResponse(s"Consulting *$name*\u2026 hang tight"))
   }
 
   before() {
@@ -73,7 +74,7 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
 
   def parseRequest() = {
     //val reqMap = body.split("\n").map(_.split("=")).map(pair => (pair(0), pair(1))).toMap
-    SlackRequest(params("text"), params("command"), params("user_name"), params.getOrElse("response_url", ""))
+    SlackRequest(params("text"), params("command"), params("user_name"), params.getOrElse("response_url", ""), params.getOrElse("user_id", ""))
   }
 
   def renderResult(request: SlackRequest, spec: RollSpec, rolls: Result) = {
@@ -123,6 +124,6 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
 
 
 }
-case class SlackRequest(text: String, command: String, who: String, responseUrl: String = "")
+case class SlackRequest(text: String, command: String, who: String, responseUrl: String = "", userId: String = "")
 case class Attachment(text: String)
 case class SlackResponse(text: String, attachments: Seq[Attachment], response_type: String = "in_channel")

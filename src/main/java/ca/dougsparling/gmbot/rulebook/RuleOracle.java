@@ -82,7 +82,7 @@ public class RuleOracle {
         }
     }
 
-    public void ask(String question, String responseUrl) {
+    public void ask(String question, String responseUrl, String mention) {
         try {
             LlmAgent agent = LlmAgent.builder()
                 .model(MODEL)
@@ -106,16 +106,17 @@ public class RuleOracle {
                 .toList()
                 .blockingGet();
 
-            String text = events.stream()
+            String answer = events.stream()
                 .filter(Event::finalResponse)
                 .map(Event::stringifyContent)
                 .findFirst()
                 .orElse("I could not find an answer in the rulebook.");
+            String text = mention + " asks: _" + question + "_\n" + answer;
             postToSlack(responseUrl, text);
 
         } catch (Exception e) {
             logger.error("RuleOracle.ask failed", e);
-            postToSlack(responseUrl, "Sorry, I encountered an error looking up the rules: " + e.getMessage());
+            postToSlack(responseUrl, mention + " asks: _" + question + "_\nSorry, I encountered an error looking up the rules: " + e.getMessage());
         }
     }
 
