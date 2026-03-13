@@ -25,13 +25,15 @@ public class RuleOracle {
 
     private static final Logger logger = LoggerFactory.getLogger(RuleOracle.class);
 
-    private static final String MODEL = "gemini-2.5-flash";
+    private static final String MODEL = "gemini-3.1-flash-lite-preview";
 
     private static final String SYSTEM_PROMPT =
         "You are a tabletop RPG rules assistant. You have tools to read files from a rulebook directory. " +
         "Start by calling listFiles(\"\") to see what's available, then read \"index.md\" to understand the structure. " +
         "Read relevant section files to answer the question accurately and concisely. " +
-        "If the rulebook does not cover the question, say so clearly. Do not invent rules.";
+        "If the rulebook does not cover the question, say so clearly. Do not invent rules. " +
+        "Format your response using Slack mrkdwn: *bold* (not **bold**), _italic_ (not *italic*), " +
+        "`code`, ```code blocks```, and • for bullet points.";
 
     private final Path rulebookPath;
 
@@ -82,7 +84,7 @@ public class RuleOracle {
         }
     }
 
-    public void ask(String question, String responseUrl, String mention) {
+    public void ask(String question, String responseUrl, String preface) {
         try {
             LlmAgent agent = LlmAgent.builder()
                 .model(MODEL)
@@ -111,12 +113,11 @@ public class RuleOracle {
                 .map(Event::stringifyContent)
                 .findFirst()
                 .orElse("I could not find an answer in the rulebook.");
-            String text = mention + " asks: _" + question + "_\n" + answer;
-            postToSlack(responseUrl, text);
+            postToSlack(responseUrl, preface + "\n" + answer);
 
         } catch (Exception e) {
             logger.error("RuleOracle.ask failed", e);
-            postToSlack(responseUrl, mention + " asks: _" + question + "_\nSorry, I encountered an error looking up the rules: " + e.getMessage());
+            postToSlack(responseUrl, preface + "\nSorry, I encountered an error looking up the rules: " + e.getMessage());
         }
     }
 

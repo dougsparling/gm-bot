@@ -64,7 +64,8 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
           if req.responseUrl.isEmpty then Ok(slackResponse("Error: no response_url from Slack."))
           else
             val mention = if req.userId.nonEmpty then s"<@${req.userId}>" else s"@${req.who}"
-            Future { new RuleOracle(path).ask(question, req.responseUrl, mention) }
+            val preface = s"$mention consults *$name*: _${question}_"
+            Future { new RuleOracle(path).ask(question, req.responseUrl, preface) }
             Ok(ephemeralResponse(s"Consulting *$name*\u2026 hang tight"))
   }
 
