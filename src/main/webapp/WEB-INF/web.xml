@@ -12,6 +12,10 @@
     <filter-name>SlackSignatureFilter</filter-name>
     <url-pattern>/roll</url-pattern>
   </filter-mapping>
+  <filter-mapping>
+    <filter-name>SlackSignatureFilter</filter-name>
+    <url-pattern>/rule</url-pattern>
+  </filter-mapping>
 
   <listener>
     <listener-class>org.scalatra.servlet.ScalatraListener</listener-class>

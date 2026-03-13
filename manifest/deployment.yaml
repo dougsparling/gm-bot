@@ -1,3 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rulebooks-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,6 +34,26 @@ spec:
             secretKeyRef:
               name: gm-bot-secrets
               key: SLACK_SIGNING_SECRET
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gm-bot-secrets
+              key: GEMINI_API_KEY
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gm-bot-secrets
+              key: GEMINI_API_KEY
+        - name: RULEBOOKS_PATH
+          value: /rulebooks
+        volumeMounts:
+        - name: rulebooks
+          mountPath: /rulebooks
+          readOnly: true
+      volumes:
+      - name: rulebooks
+        persistentVolumeClaim:
+          claimName: rulebooks-pvc
 ---
 apiVersion: v1
 kind: Service

@@ -2,10 +2,14 @@ package ca.dougsparling.gmbot
 
 import ca.dougsparling.gmbot.parser.{RollSpec, RollSpecParser}
 import ca.dougsparling.gmbot.roller.{RollSpecApproximator, _}
+import ca.dougsparling.gmbot.rulebook.{RulebookFinder, RuleOracle, Found, Ambiguous, NotFound}
 import org.slf4j.{Logger, LoggerFactory}
 import org.json4s.{DefaultFormats, Formats}
 import org.scalatra.json._
 import org.scalatra.Ok
+
+import java.nio.file.{Path, Paths}
+import scala.concurrent.{ExecutionContext, Future}
 
 class GmBotServlet extends GmBotStack with JacksonJsonSupport {
 
@@ -13,6 +17,11 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
   protected implicit lazy val jsonFormats: Formats = DefaultFormats
   protected lazy val secureRoller = new RollSpecRunner with SecureDice
   protected lazy val secureApproximator = new RollSpecApproximator with SecureGaussian
+
+  protected lazy val rulebooksRoot: Path =
+    Paths.get(Option(System.getenv("RULEBOOKS_PATH")).getOrElse("./rulebooks"))
+
+  protected given ec: ExecutionContext = ExecutionContext.global
 
   get("/health") {
     Ok("hello")
@@ -38,13 +47,30 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
     }
   }
 
+  post("/rule") {
+    val req   = parseRequest()
+    val parts = req.text.trim.split("\\s+", 2)
+    if parts.length < 2 then
+      Ok(slackResponse("Usage: `/rule <ruleset> <question>`"))
+    else
+      val (prefix, question) = (parts(0), parts(1))
+      RulebookFinder.resolve(prefix, rulebooksRoot) match
+        case NotFound           => Ok(slackResponse(s"No rulebook found matching `$prefix`."))
+        case Ambiguous(matches) => Ok(slackResponse(s"Ambiguous: `$prefix` matches ${matches.mkString(", ")}"))
+        case Found(name, path)  =>
+          if req.responseUrl.isEmpty then Ok(slackResponse("Error: no response_url from Slack."))
+          else
+            Future { new RuleOracle(path).ask(question, req.responseUrl) }
+            Ok(ephemeralResponse(s"Looking up rules in *$name*\u2026 I'll respond shortly."))
+  }
+
   before() {
     contentType = formats("json")
   }
 
   def parseRequest() = {
     //val reqMap = body.split("\n").map(_.split("=")).map(pair => (pair(0), pair(1))).toMap
-    SlackRequest(params("text"), params("command"), params("user_name"))
+    SlackRequest(params("text"), params("command"), params("user_name"), params.getOrElse("response_url", ""))
   }
 
   def renderResult(request: SlackRequest, spec: RollSpec, rolls: Result) = {
@@ -87,8 +113,13 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
     SlackResponse(text, attachments.map(Attachment.apply))
   }
 
+  def ephemeralResponse(text: String) = {
+    contentType = formats("json")
+    SlackResponse(text, Seq.empty, response_type = "ephemeral")
+  }
+
 
 }
-case class SlackRequest(text: String, command: String, who: String)
+case class SlackRequest(text: String, command: String, who: String, responseUrl: String = "")
 case class Attachment(text: String)
 case class SlackResponse(text: String, attachments: Seq[Attachment], response_type: String = "in_channel")
