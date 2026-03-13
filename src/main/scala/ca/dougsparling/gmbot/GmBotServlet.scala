@@ -51,7 +51,10 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
     val req   = parseRequest()
     val parts = req.text.trim.split("\\s+", 2)
     if parts.length < 2 then
-      Ok(slackResponse("Usage: `/rule <ruleset> <question>`"))
+      val all = RulebookFinder.listAll(rulebooksRoot)
+      val list = if all.isEmpty then "_No rulebooks found._"
+                 else all.map(n => s"• `$n`").mkString("\n")
+      Ok(slackResponse(s"Available rulebooks:\n$list\nUsage: `/rule <ruleset> <question>`"))
     else
       val (prefix, question) = (parts(0), parts(1))
       RulebookFinder.resolve(prefix, rulebooksRoot) match
