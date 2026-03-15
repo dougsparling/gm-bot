@@ -1,34 +1,62 @@
 package ca.dougsparling.gmbot.rulebook
 
-import com.google.adk.agents.LlmAgent
-import com.google.adk.events.Event
-import com.google.adk.runner.InMemoryRunner
-import com.google.adk.tools.FunctionTool
-import com.google.genai.types.{Content, Part}
+import dev.langchain4j.agent.tool.ToolSpecification
+import dev.langchain4j.data.message.{AiMessage, ChatMessage, SystemMessage, ToolExecutionResultMessage, UserMessage}
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema
+import dev.langchain4j.model.openai.{OpenAiChatModel, OpenAiChatRequestParameters}
 import org.slf4j.LoggerFactory
 
 import java.io.IOException
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.file.{Files, Path}
-import java.util.stream.Collectors
+import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 
 object RuleOracle:
-  private val MODEL = "gemini-3.1-flash-lite-preview"
+  private val model: ChatModel =
+    OpenAiChatModel.builder()
+      .baseUrl(sys.env("LLM_BASE_URL"))
+      .apiKey(sys.env("LLM_API_KEY"))
+      .modelName(sys.env("LLM_MODEL"))
+      .defaultRequestParameters(OpenAiChatRequestParameters.builder()
+        .customParameters(java.util.Map.of("cache_prompt", true))
+        .build())
+      .build()
+
+  private val tools: java.util.List[ToolSpecification] = java.util.List.of(
+    ToolSpecification.builder()
+      .name("readFile")
+      .description("reads the full content of a file from the rulebook directory")
+      .parameters(JsonObjectSchema.builder()
+        .addStringProperty("filename", "the relative filename to read")
+        .required(java.util.List.of("filename"))
+        .build())
+      .build(),
+    ToolSpecification.builder()
+      .name("searchFiles")
+      .description("searches all rulebook files for lines containing the query string; returns up to 20 matches as filename:line:content")
+      .parameters(JsonObjectSchema.builder()
+        .addStringProperty("query", "the search string")
+        .required(java.util.List.of("query"))
+        .build())
+      .build()
+  )
+
   private val SYSTEM_PROMPT_BASE =
     "You are a tabletop RPG rules assistant.\n\n" +
     "Available tools:\n" +
     "- readFile(filename): reads the full content of a file from the rulebook directory\n" +
-    "- listFiles(subdirectory): lists files in the rulebook directory or a subdirectory; pass an empty string for the root\n" +
-    "- searchFiles(query): searches all rulebook files for lines containing the query string; returns up to 20 matches as filename:line: content\n\n" +
+    "- searchFiles(query): searches all rulebook files for lines containing the query string; returns up to 20 matches as filename:line:content\n\n" +
     "A rulebook index is provided below. Use the index to identify the most relevant file and call readFile directly. " +
     "Only use searchFiles if the index does not clearly identify a target file. " +
-    "Do not call listFiles unless neither the index nor searchFiles gives enough direction. " +
     "Read additional files only if the first file does not contain enough to answer the question. " +
     "If the rulebook does not cover the question, say so clearly. Do not invent rules. " +
     "Always include a fenced code block (``` ... ```) with the exact passage from the file that supports your answer. " +
-    "Format your response using standard markdown.\n\n"
+    "Format your response using standard markdown.\n\n" +
+    "/no_think\n\n"
 
 class RuleOracle(rulebookPath: Path):
   import RuleOracle.*
@@ -36,11 +64,26 @@ class RuleOracle(rulebookPath: Path):
   private val logger = LoggerFactory.getLogger(getClass)
   private val root   = rulebookPath.toAbsolutePath.normalize()
 
-  private def loadIndex(): String =
+  private val index: String =
     try Files.readString(root.resolve("index.md"))
     catch case e: IOException =>
       logger.warn("Could not load index.md: {}", e.getMessage)
       "(index unavailable)"
+
+  // Pre-warm: loads the model and seeds the KV cache with the system prompt + index.
+  // Runs in the background so it doesn't block startup or the first request.
+  Future {
+    try
+      val req = ChatRequest.builder()
+        .messages(java.util.List.of(
+          SystemMessage.from(SYSTEM_PROMPT_BASE + index),
+          UserMessage.from("ready")))
+        .build()
+      model.chat(req)
+      logger.info("RuleOracle pre-warm complete for {}", root)
+    catch case e: Exception =>
+      logger.warn("RuleOracle pre-warm failed (continuing): {}", e.getMessage)
+  }(ExecutionContext.global)
 
   def readFile(filename: String): String =
     try
@@ -74,89 +117,99 @@ class RuleOracle(rulebookPath: Path):
       logger.warn("searchFiles failed for {}: {}", query, e.getMessage)
       s"Error searching files: ${e.getMessage}"
 
-  def listFiles(subdirectory: String): String =
-    try
-      val target =
-        if subdirectory.isEmpty then root
-        else root.resolve(subdirectory).normalize()
-      if !target.startsWith(root) then
-        "Error: access denied — path is outside the rulebook directory."
-      else if !Files.isDirectory(target) then
-        s"Error: not a directory: $subdirectory"
-      else
-        Files.list(target)
-          .map(p => p.getFileName.toString + (if Files.isDirectory(p) then "/" else ""))
-          .sorted()
-          .collect(Collectors.joining("\n"))
-    catch case e: IOException =>
-      logger.warn("listFiles failed for {}: {}", subdirectory, e.getMessage)
-      s"Error listing files: ${e.getMessage}"
-
   def ask(question: String, responseUrl: String, preface: String): Unit =
     try
-      val agent = LlmAgent.builder()
-        .model(MODEL)
-        .name("rulebook_assistant")
-        .description("Answers tabletop RPG rules questions from local rulebook files")
-        .instruction(SYSTEM_PROMPT_BASE + loadIndex())
-        .tools(
-          FunctionTool.create(this, "listFiles"),
-          FunctionTool.create(this, "readFile"),
-          FunctionTool.create(this, "searchFiles")
-        )
-        .build()
+      val messages = new java.util.ArrayList[ChatMessage]()
+      messages.add(SystemMessage.from(SYSTEM_PROMPT_BASE + index))
+      messages.add(UserMessage.from(question))
 
-      val runner  = new InMemoryRunner(agent)
-      val session = runner.sessionService().createSession(agent.name(), "slack-user").blockingGet()
-      val events  = runner.runAsync("slack-user", session.id(), Content.fromParts(Part.fromText(question)))
-        .toList.blockingGet()
+      val trace = new StringBuilder
+      var answer = "I could not find an answer in the rulebook."
+      var done = false
 
-      val answer = events.stream()
-        .filter(_.finalResponse())
-        .map(_.stringifyContent())
-        .findFirst()
-        .orElse("I could not find an answer in the rulebook.")
+      while !done do
+        val request  = ChatRequest.builder().messages(messages).toolSpecifications(tools).build()
+        val response = model.chat(request)
+        val aiMsg    = response.aiMessage()
+        messages.add(aiMsg)
 
-      postToSlack(responseUrl, s"$preface\n$answer", buildTrace(events))
+        if aiMsg.hasToolExecutionRequests() then
+          for req <- aiMsg.toolExecutionRequests().asScala do
+            trace.append(s"`${req.name()}(${req.arguments()})`\n")
+            val result = dispatchTool(req.name(), req.arguments())
+            val headings = result.linesIterator.filter(l => l.startsWith("# ") || l.startsWith("## ")).mkString(", ")
+            trace.append(s"→ ${if headings.nonEmpty then headings else "(no headings)"}\n")
+            messages.add(ToolExecutionResultMessage.from(req, result))
+        else
+          answer = Option(aiMsg.text()).getOrElse("I could not find an answer in the rulebook.")
+          done = true
+
+      postToSlack(responseUrl, s"$preface\n$answer", trace.toString.trim)
 
     catch case e: Exception =>
       logger.error("RuleOracle.ask failed", e)
-      postToSlack(responseUrl, s"$preface\nSorry, I encountered an error looking up the rules: ${e.getMessage}", "")
+      postToSlack(responseUrl, s"$preface\nSorry, I encountered an error: ${e.getMessage}", "")
 
-  private def buildTrace(events: java.util.List[Event]): String =
-    val sb = new StringBuilder
-    for e <- events.asScala if !e.finalResponse() && e.content().isPresent do
-      for p <- e.content().get().parts().get().asScala do
-        p.functionCall().ifPresent { fc =>
-          val name = fc.name().orElse("?")
-          val args = fc.args()
-            .map(m => m.values().stream().map[String](_.toString).collect(Collectors.joining(", ")))
-            .orElse("")
-          sb.append(s"`$name(\"$args\")`\n")
-        }
-        p.functionResponse().ifPresent { fr =>
-          val content = fr.response()
-            .map(m => String.valueOf(m.asInstanceOf[java.util.Map[String, Object]].getOrDefault("result", m)))
-            .orElse("")
-          val headings = content.linesIterator.filter(l => l.startsWith("# ") || l.startsWith("## ")).mkString(", ")
-          val summary  = if headings.nonEmpty then headings else "(no headings)"
-          sb.append(s"→ $summary\n")
-        }
-    sb.toString.trim
+  private def dispatchTool(name: String, argsJson: String): String =
+    import org.json4s.*
+    import org.json4s.jackson.JsonMethods.*
+    implicit val formats: Formats = DefaultFormats
+    val args = parse(argsJson)
+    name match
+      case "readFile"    => readFile((args \ "filename").extractOpt[String].getOrElse(""))
+      case "searchFiles" => searchFiles((args \ "query").extractOpt[String].getOrElse(""))
+      case other         => s"Unknown tool: $other"
+
+  private def splitIntoBlocks(text: String, maxLen: Int, maxBlocks: Int): List[String] =
+    val lines  = text.split("\n", -1).toList
+    val chunks = scala.collection.mutable.ListBuffer[String]()
+    val current = new StringBuilder
+    for line <- lines do
+      val addition = if current.isEmpty then line else s"\n$line"
+      if current.length + addition.length > maxLen then
+        if current.nonEmpty then chunks += current.toString
+        current.clear()
+        // line itself exceeds maxLen — hard split
+        var remaining = line
+        while remaining.nonEmpty do
+          chunks += remaining.take(maxLen)
+          remaining = remaining.drop(maxLen)
+      else
+        current.append(addition)
+    if current.nonEmpty then chunks += current.toString
+    chunks.take(maxBlocks).toList
 
   private def postToSlack(responseUrl: String, text: String, trace: String): Unit =
-    val blocks = new StringBuilder
-    blocks.append(s"""[{"type":"markdown","text":${jsonString(text)}}""")
-    if trace.nonEmpty then
-      blocks.append(s""",{"type":"section","expand":false,"text":{"type":"mrkdwn","text":${jsonString(s"*Tool trace*\n$trace")}}}""")
-    blocks.append("]")
-    val json = s"""{"response_type":"in_channel","blocks":$blocks}"""
+    import org.json4s.*
+    import org.json4s.jackson.JsonMethods.*
+    implicit val formats: Formats = DefaultFormats
+
+    val maxBlocks   = if trace.nonEmpty then 49 else 50
+    val textBlocks  = splitIntoBlocks(text, 3000, maxBlocks).map(chunk =>
+      JObject("type" -> JString("markdown"), "text" -> JString(chunk))
+    )
+    val traceBlock  = JObject(
+      "type"   -> JString("section"),
+      "expand" -> JBool(false),
+      "text"   -> JObject(
+        "type" -> JString("mrkdwn"),
+        "text" -> JString(s"*Tool trace*\n$trace")
+      )
+    )
+    val blocks = if trace.nonEmpty then JArray(textBlocks :+ traceBlock)
+                 else JArray(textBlocks)
+    val payload = compact(render(JObject(
+      "response_type" -> JString("in_channel"),
+      "blocks"        -> blocks
+    )))
+
+    logger.info("Posting to Slack: {}", payload)
     try
       val client   = HttpClient.newHttpClient()
       val request  = HttpRequest.newBuilder()
         .uri(URI.create(responseUrl))
         .header("Content-Type", "application/json")
-        .POST(HttpRequest.BodyPublishers.ofString(json))
+        .POST(HttpRequest.BodyPublishers.ofString(payload))
         .build()
       val response = client.send(request, HttpResponse.BodyHandlers.ofString())
       if response.statusCode() == 200 then
@@ -165,15 +218,3 @@ class RuleOracle(rulebookPath: Path):
         logger.warn("Slack response_url POST status: {} body: {}", response.statusCode(), response.body())
     catch case e: Exception =>
       logger.error("Failed to POST to Slack response_url", e)
-
-  private def jsonString(s: String): String =
-    val sb = new StringBuilder("\"")
-    for c <- s do c match
-      case '"'  => sb.append("\\\"")
-      case '\\' => sb.append("\\\\")
-      case '\n' => sb.append("\\n")
-      case '\r' => sb.append("\\r")
-      case '\t' => sb.append("\\t")
-      case c if c < 0x20 => sb.append(f"\\u${c.toInt}%04x")
-      case c => sb.append(c)
-    sb.append("\"").toString

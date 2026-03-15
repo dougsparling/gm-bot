@@ -34,16 +34,21 @@ spec:
             secretKeyRef:
               name: gm-bot-secrets
               key: SLACK_SIGNING_SECRET
-        - name: GEMINI_API_KEY
+        - name: LLM_BASE_URL
           valueFrom:
             secretKeyRef:
               name: gm-bot-secrets
-              key: GEMINI_API_KEY
-        - name: GOOGLE_API_KEY
+              key: LLM_BASE_URL
+        - name: LLM_API_KEY
           valueFrom:
             secretKeyRef:
               name: gm-bot-secrets
-              key: GEMINI_API_KEY
+              key: LLM_API_KEY
+        - name: LLM_MODEL
+          valueFrom:
+            secretKeyRef:
+              name: gm-bot-secrets
+              key: LLM_MODEL
         - name: RULEBOOKS_PATH
           value: /rulebooks
         volumeMounts:

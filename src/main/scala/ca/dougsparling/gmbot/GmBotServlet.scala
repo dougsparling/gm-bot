@@ -21,6 +21,13 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
   protected lazy val rulebooksRoot: Path =
     Paths.get(Option(System.getenv("RULEBOOKS_PATH")).getOrElse("./rulebooks"))
 
+  protected lazy val oracles: Map[Path, RuleOracle] =
+    RulebookFinder.listAll(rulebooksRoot)
+      .flatMap(name => RulebookFinder.resolve(name, rulebooksRoot) match
+        case Found(_, path) => Some(path -> new RuleOracle(path))
+        case _              => None)
+      .toMap
+
   protected given ec: ExecutionContext = ExecutionContext.global
 
   get("/health") {
@@ -65,7 +72,8 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
           else
             val mention = if req.userId.nonEmpty then s"<@${req.userId}>" else s"@${req.who}"
             val preface = s"$mention consults *$name*: _${question}_"
-            Future { new RuleOracle(path).ask(question, req.responseUrl, preface) }
+            val oracle = oracles.getOrElse(path, new RuleOracle(path))
+            Future { oracle.ask(question, req.responseUrl, preface) }
             Ok(ephemeralResponse(s"Consulting *$name*\u2026 hang tight"))
   }
 

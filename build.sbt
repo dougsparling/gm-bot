@@ -8,8 +8,6 @@ version := "1.0.0"
 
 scalaVersion := "3.8.2"
 
-scalacOptions += "-parameters"
-
 libraryDependencies ++= Seq(
   "org.scalatra" %% "scalatra-jakarta" % ScalatraVersion,
   "org.scalatra" %% "scalatra-scalatest-jakarta" % ScalatraVersion % "test",
@@ -20,7 +18,7 @@ libraryDependencies ++= Seq(
   "org.eclipse.jetty.ee10" % "jetty-ee10-webapp" % "12.1.7" % "container;compile",
   "jakarta.servlet" % "jakarta.servlet-api" % "6.1.0" % "provided",
   "com.slack.api" % "slack-app-backend" % "1.45.3",
-  "com.google.adk" % "google-adk" % "0.8.0"
+  "dev.langchain4j" % "langchain4j-open-ai" % "1.12.2"
 )
 
 Compile / run / mainClass := Some("ca.dougsparling.JettyLauncher")
@@ -28,8 +26,7 @@ Compile / run / mainClass := Some("ca.dougsparling.JettyLauncher")
 // jcl-over-slf4j provides the same classes as commons-logging as an SLF4J bridge;
 // exclude the real commons-logging to avoid duplicate class conflicts at assembly time.
 excludeDependencies ++= Seq(
-  ExclusionRule("commons-logging", "commons-logging"),
-  ExclusionRule("javax.annotation", "javax.annotation-api")
+  ExclusionRule("commons-logging", "commons-logging")
 )
 
 assembly / assemblyMergeStrategy := {
@@ -40,6 +37,7 @@ assembly / assemblyMergeStrategy := {
   case PathList("META-INF", "versions", _, "OSGI-INF", _*)        => MergeStrategy.first
   case PathList("META-INF", f) if f.endsWith(".properties")        => MergeStrategy.first
   case PathList("META-INF", f) if f.endsWith(".json")              => MergeStrategy.first
+  case PathList("META-INF", "native-image", _*)                   => MergeStrategy.discard
   case x => (assembly / assemblyMergeStrategy).value(x)
 }
 
