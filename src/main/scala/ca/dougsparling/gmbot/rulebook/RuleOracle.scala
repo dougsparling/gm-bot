@@ -149,9 +149,8 @@ class RuleOracle(rulebookPath: Path):
         if aiMsg.hasToolExecutionRequests() then
           for req <- aiMsg.toolExecutionRequests().asScala do
             trace.append(s"`${req.name()}(${req.arguments()})`\n")
-            val result = dispatchTool(req.name(), req.arguments())
-            val headings = result.linesIterator.filter(l => l.startsWith("# ") || l.startsWith("## ")).mkString(", ")
-            trace.append(s"→ ${if headings.nonEmpty then headings else "(no headings)"}\n")
+            val (result, summary) = dispatchTool(req.name(), req.arguments())
+            trace.append(s"→ $summary\n")
             messages.add(ToolExecutionResultMessage.from(req, result))
         else
           answer = Option(aiMsg.text()).getOrElse("I could not find an answer in the rulebook.")
@@ -163,15 +162,22 @@ class RuleOracle(rulebookPath: Path):
       logger.error("RuleOracle.ask failed", e)
       postToSlack(responseUrl, s"$preface\nSorry, I encountered an error: ${e.getMessage}", "")
 
-  private def dispatchTool(name: String, argsJson: String): String =
+  private def dispatchTool(name: String, argsJson: String): (String, String) =
     import org.json4s.*
     import org.json4s.jackson.JsonMethods.*
     implicit val formats: Formats = DefaultFormats
     val args = parse(argsJson)
     name match
-      case "readFile"    => readFile((args \ "filename").extractOpt[String].getOrElse(""))
-      case "searchFiles" => searchFiles((args \ "query").extractOpt[String].getOrElse(""))
-      case other         => s"Unknown tool: $other"
+      case "readFile" =>
+        val result   = readFile((args \ "filename").extractOpt[String].getOrElse(""))
+        val headings = result.linesIterator.filter(l => l.startsWith("# ") || l.startsWith("## ")).mkString(", ")
+        (result, if headings.nonEmpty then headings else "(no headings)")
+      case "searchFiles" =>
+        val result = searchFiles((args \ "query").extractOpt[String].getOrElse(""))
+        val n      = result.linesIterator.count(_.nonEmpty)
+        (result, if n == 0 then "0 results" else s"$n result(s)")
+      case other =>
+        (s"Unknown tool: $other", "unknown tool")
 
   private def toMrkdwn(md: String): String =
     var s = md
