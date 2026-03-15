@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.{AiMessage, ChatMessage, SystemMessage, Tool
 import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.chat.request.ChatRequest
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema
+import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel
 import dev.langchain4j.model.openai.{OpenAiChatModel, OpenAiChatRequestParameters}
 import org.slf4j.LoggerFactory
 
@@ -16,15 +17,27 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 
 object RuleOracle:
+  private val baseUrl   = sys.env("LLM_BASE_URL").trim.stripSuffix("/")
+  private val modelName = sys.env("LLM_MODEL").trim
+  private val apiKey    = sys.env("LLM_API_KEY").trim
+  private val isLocal   = baseUrl.contains("://localhost") || baseUrl.contains("://192.168.")
+  private val isGemini  = modelName.startsWith("gemini")
+
   private val model: ChatModel =
-    OpenAiChatModel.builder()
-      .baseUrl(sys.env("LLM_BASE_URL"))
-      .apiKey(sys.env("LLM_API_KEY"))
-      .modelName(sys.env("LLM_MODEL"))
-      .defaultRequestParameters(OpenAiChatRequestParameters.builder()
+    if isGemini then
+      GoogleAiGeminiChatModel.builder()
+        .apiKey(apiKey)
+        .modelName(modelName)
+        .build()
+    else
+      val builder = OpenAiChatModel.builder()
+        .baseUrl(baseUrl)
+        .apiKey(apiKey)
+        .modelName(modelName)
+      if isLocal then builder.defaultRequestParameters(OpenAiChatRequestParameters.builder()
         .customParameters(java.util.Map.of("cache_prompt", true))
         .build())
-      .build()
+      builder.build()
 
   private val tools: java.util.List[ToolSpecification] = java.util.List.of(
     ToolSpecification.builder()
@@ -54,7 +67,7 @@ object RuleOracle:
     "Only use searchFiles if the index does not clearly identify a target file. " +
     "Read additional files only if the first file does not contain enough to answer the question. " +
     "If the rulebook does not cover the question, say so clearly. Do not invent rules. " +
-    "Always include a fenced code block (``` ... ```) with the exact passage from the file that supports your answer. " +
+    "When citing a passage from the rulebook, include it inline in your response without any code block or blockquote formatting. " +
     "Format your response using standard markdown.\n\n" +
     "/no_think\n\n"
 
@@ -160,6 +173,47 @@ class RuleOracle(rulebookPath: Path):
       case "searchFiles" => searchFiles((args \ "query").extractOpt[String].getOrElse(""))
       case other         => s"Unknown tool: $other"
 
+  private def toMrkdwn(md: String): String =
+    var s = md
+    // Remove language hint from fenced code blocks
+    s = s.replaceAll("(?m)^```[a-zA-Z0-9]+$", "```")
+    // Horizontal rules (---, ***, ___) → blank line
+    s = s.replaceAll("(?m)^(\\*{3,}|-{3,}|_{3,})\\s*$", "")
+    // Headings → bold
+    s = s.replaceAll("(?m)^#{1,6}\\s+(.+)$", "*$1*")
+    // Bold+italic — must come before bold
+    s = s.replaceAll("\\*\\*\\*(.+?)\\*\\*\\*", "*_$1_*")
+    // Bold
+    s = s.replaceAll("\\*\\*(.+?)\\*\\*", "*$1*")
+    // Strikethrough
+    s = s.replaceAll("~~(.+?)~~", "~$1~")
+    // Links
+    s = s.replaceAll("\\[(.+?)\\]\\((.+?)\\)", "<$2|$1>")
+    // Tables — wrap in code block for monospace alignment; strip separator rows
+    s = wrapTables(s)
+    s
+
+  private def wrapTables(text: String): String =
+    val lines = text.split("\n", -1).toList
+    val result = scala.collection.mutable.ListBuffer[String]()
+    var inTable = false
+    for line <- lines do
+      val isTableRow  = line.trim.startsWith("|")
+      val isSeparator = line.matches("\\s*\\|[-| :]+\\|\\s*")
+      if isTableRow && !inTable then
+        inTable = true
+        result += "```"
+        if !isSeparator then result += line
+      else if isTableRow then
+        if !isSeparator then result += line
+      else
+        if inTable then
+          inTable = false
+          result += "```"
+        result += line
+    if inTable then result += "```"
+    result.mkString("\n")
+
   private def splitIntoBlocks(text: String, maxLen: Int, maxBlocks: Int): List[String] =
     val lines  = text.split("\n", -1).toList
     val chunks = scala.collection.mutable.ListBuffer[String]()
@@ -185,16 +239,15 @@ class RuleOracle(rulebookPath: Path):
     implicit val formats: Formats = DefaultFormats
 
     val maxBlocks   = if trace.nonEmpty then 49 else 50
-    val textBlocks  = splitIntoBlocks(text, 3000, maxBlocks).map(chunk =>
-      JObject("type" -> JString("markdown"), "text" -> JString(chunk))
+    val textBlocks  = splitIntoBlocks(toMrkdwn(text), 3000, maxBlocks).map(chunk =>
+      JObject("type" -> JString("section"), "text" -> JObject("type" -> JString("mrkdwn"), "text" -> JString(chunk)))
     )
     val traceBlock  = JObject(
-      "type"   -> JString("section"),
-      "expand" -> JBool(false),
-      "text"   -> JObject(
+      "type"     -> JString("context"),
+      "elements" -> JArray(List(JObject(
         "type" -> JString("mrkdwn"),
         "text" -> JString(s"*Tool trace*\n$trace")
-      )
+      )))
     )
     val blocks = if trace.nonEmpty then JArray(textBlocks :+ traceBlock)
                  else JArray(textBlocks)

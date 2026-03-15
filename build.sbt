@@ -18,7 +18,8 @@ libraryDependencies ++= Seq(
   "org.eclipse.jetty.ee10" % "jetty-ee10-webapp" % "12.1.7" % "container;compile",
   "jakarta.servlet" % "jakarta.servlet-api" % "6.1.0" % "provided",
   "com.slack.api" % "slack-app-backend" % "1.45.3",
-  "dev.langchain4j" % "langchain4j-open-ai" % "1.12.2"
+  "dev.langchain4j" % "langchain4j-open-ai" % "1.12.2",
+  "dev.langchain4j" % "langchain4j-google-ai-gemini" % "1.0.0-beta5"
 )
 
 Compile / run / mainClass := Some("ca.dougsparling.JettyLauncher")
