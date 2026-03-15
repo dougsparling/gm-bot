@@ -8,6 +8,8 @@ version := "1.0.0"
 
 scalaVersion := "3.8.2"
 
+scalacOptions += "-parameters"
+
 libraryDependencies ++= Seq(
   "org.scalatra" %% "scalatra-jakarta" % ScalatraVersion,
   "org.scalatra" %% "scalatra-scalatest-jakarta" % ScalatraVersion % "test",
