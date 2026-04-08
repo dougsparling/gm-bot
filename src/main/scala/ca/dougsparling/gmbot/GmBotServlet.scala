@@ -30,6 +30,10 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
 
   protected given ec: ExecutionContext = ExecutionContext.global
 
+  before() {
+    contentType = formats("json")
+  }
+
   get("/health") {
     Ok("hello")
   }
@@ -64,21 +68,30 @@ class GmBotServlet extends GmBotStack with JacksonJsonSupport {
       Ok(slackResponse(s"Available rulebooks:\n$list\nUsage: `/rule <ruleset> <question>`"))
     else
       val (prefix, question) = (parts(0), parts(1))
-      RulebookFinder.resolve(prefix, rulebooksRoot) match
-        case NotFound           => Ok(slackResponse(s"No rulebook found matching `$prefix`."))
-        case Ambiguous(matches) => Ok(slackResponse(s"Ambiguous: `$prefix` matches ${matches.mkString(", ")}"))
-        case Found(name, path)  =>
-          if req.responseUrl.isEmpty then Ok(slackResponse("Error: no response_url from Slack."))
-          else
-            val mention = if req.userId.nonEmpty then s"<@${req.userId}>" else s"@${req.who}"
-            val preface = s"$mention consults *$name*: _${question}_"
-            val oracle = oracles.getOrElse(path, new RuleOracle(path))
-            Future { oracle.ask(question, req.responseUrl, preface) }
-            Ok(ephemeralResponse(s"Consulting *$name*\u2026 hang tight"))
+      handleRuleQuery(req, prefix, question)
   }
 
-  before() {
-    contentType = formats("json")
+  post("/gm") {
+    val req      = parseRequest()
+    val trailer = req.text.trim
+    if trailer.isEmpty then
+      Ok(slackResponse("Usage: `/gm <statement or question>`"))
+    else
+      handleRuleQuery(req, "gm", trailer)
+  }
+
+  private def handleRuleQuery(req: SlackRequest, prefix: String, question: String) = {
+    RulebookFinder.resolve(prefix, rulebooksRoot) match
+      case NotFound           => Ok(slackResponse(s"No rulebook found matching `$prefix`."))
+      case Ambiguous(matches) => Ok(slackResponse(s"Ambiguous: `$prefix` matches ${matches.mkString(", ")}"))
+      case Found(name, path)  =>
+        if req.responseUrl.isEmpty then Ok(slackResponse("Error: no response_url from Slack."))
+        else
+          val mention = if req.userId.nonEmpty then s"<@${req.userId}>" else s"@${req.who}"
+          val preface = s"$mention consults *$name*: _${question}_"
+          val oracle = oracles.getOrElse(path, new RuleOracle(path))
+          Future { oracle.ask(question, req.responseUrl, preface) }
+          Ok(ephemeralResponse(s"Consulting *$name*\u2026 hang tight"))
   }
 
   def parseRequest() = {

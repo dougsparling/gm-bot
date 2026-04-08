@@ -5,6 +5,8 @@ import dev.langchain4j.data.message.{AiMessage, ChatMessage, SystemMessage, Tool
 import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.chat.request.ChatRequest
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema
+import ca.dougsparling.gmbot.parser.RollSpecParser
+import ca.dougsparling.gmbot.roller.{Dropped, Kept, Rerolled, RollSpecRunner, SecureDice}
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel
 import dev.langchain4j.model.openai.{OpenAiChatModel, OpenAiChatRequestParameters}
 import org.slf4j.LoggerFactory
@@ -39,6 +41,8 @@ object RuleOracle:
         .build())
       builder.build()
 
+  private val roller = new RollSpecRunner with SecureDice
+
   private val tools: java.util.List[ToolSpecification] = java.util.List.of(
     ToolSpecification.builder()
       .name("readFile")
@@ -55,6 +59,16 @@ object RuleOracle:
         .addStringProperty("query", "the search string")
         .required(java.util.List.of("query"))
         .build())
+      .build(),
+    ToolSpecification.builder()
+      .name("rollDice")
+      .description("rolls dice using a spec string; full syntax: [Nx times] [N]dS [+/-M] [reroll N|N to M] [drop highest|lowest [N]]; " +
+        "examples: '4d6', 'd20+5', '3 times 2d6+3', '4 times 4d6 drop lowest', '2d8 reroll 1 to 2'; " +
+        "use 'N times' to roll multiple times in one call instead of calling this tool repeatedly")
+      .parameters(JsonObjectSchema.builder()
+        .addStringProperty("spec", "the dice roll specification")
+        .required(java.util.List.of("spec"))
+        .build())
       .build()
   )
 
@@ -65,6 +79,8 @@ object RuleOracle:
     "- searchFiles(query): searches all rulebook files for lines containing the query string; returns up to 20 matches as filename:line:content\n\n" +
     "A rulebook index is provided below. Use the index to identify the most relevant file and call readFile directly. " +
     "Only use searchFiles if the index does not clearly identify a target file. " +
+    "If searchFiles returns any results, immediately read the file from the first result rather than searching again with variations. " +
+    "If the user asks to roll dice, first look up the relevant rule in the rulebook to confirm the dice spec, then call rollDice with the spec from the rulebook. Never roll from memory — always verify the spec first. Never ask for confirmation before rolling; just roll. " +
     "Read additional files only if the first file does not contain enough to answer the question. " +
     "If the rulebook does not cover the question, say so clearly. Do not invent rules. " +
     "When citing a passage from the rulebook, include it inline in your response without any code block or blockquote formatting. " +
@@ -113,24 +129,54 @@ class RuleOracle(rulebookPath: Path):
 
   def searchFiles(query: String): String =
     try
-      val lq = query.toLowerCase
-      val hits = new java.util.ArrayList[String]()
+      val lq      = query.toLowerCase
+      val results = scala.collection.mutable.ListBuffer[String]()
+      val seen    = scala.collection.mutable.Set[(String, Int)]()
+
       Files.walk(root)
         .filter(p => p.toString.endsWith(".md") && Files.isRegularFile(p))
         .forEach { path =>
-          val rel = root.relativize(path).toString
-          Files.readAllLines(path).asScala.zipWithIndex.foreach { (line, i) =>
-            if line.toLowerCase.contains(lq) then
-              hits.add(s"$rel:${i + 1}: $line")
-          }
+          if results.size < 3 then
+            val rel   = root.relativize(path).toString
+            val lines = Files.readAllLines(path).asScala.toVector
+            lines.zipWithIndex.foreach { (line, idx) =>
+              if line.toLowerCase.contains(lq) && results.size < 3 then
+                val sectionStart = (idx to 0 by -1).find(i => lines(i).startsWith("#")).getOrElse(0)
+                if !seen.contains((rel, sectionStart)) then
+                  seen += ((rel, sectionStart))
+                  val level      = lines(sectionStart).takeWhile(_ == '#').length
+                  val sectionEnd = (sectionStart + 1 until lines.length).find { i =>
+                    val l = lines(i)
+                    l.startsWith("#") && l.takeWhile(_ == '#').length <= level
+                  }.getOrElse(lines.length)
+                  val text = lines.slice(sectionStart, sectionEnd).mkString("\n").trim
+                  results += s"[$rel]\n$text"
+            }
         }
-      if hits.isEmpty then s"No matches found for: $query"
-      else hits.asScala.take(20).mkString("\n")
+      if results.isEmpty then s"No matches found for: $query"
+      else results.mkString("\n\n---\n\n")
     catch case e: IOException =>
       logger.warn("searchFiles failed for {}: {}", query, e.getMessage)
       s"Error searching files: ${e.getMessage}"
 
+  def rollDice(spec: String): String =
+    RollSpecParser.parseAll(RollSpecParser.roll, spec) match
+      case RollSpecParser.Success(rollSpec, _) =>
+        roller.run(rollSpec) match
+          case Left(result) =>
+            result.batches.map { batch =>
+              val rolls = batch.rolls.map {
+                case r if r.fate == Kept     => s"${r.n}"
+                case r if r.fate == Rerolled => s"${r.n}(rerolled)"
+                case r if r.fate == Dropped  => s"${r.n}(dropped)"
+              }.mkString(", ")
+              s"[$rolls] = ${batch.sum(rollSpec.modifier)}${if rollSpec.modifier != 0 then s" (with +${rollSpec.modifier})" else ""}"
+            }.mkString("\n")
+          case Right(err) => s"Error: $err"
+      case _ => s"Could not parse dice spec: '$spec'"
+
   def ask(question: String, responseUrl: String, preface: String): Unit =
+    val startTime = System.currentTimeMillis()
     try
       val messages = new java.util.ArrayList[ChatMessage]()
       messages.add(SystemMessage.from(SYSTEM_PROMPT_BASE + index))
@@ -156,11 +202,19 @@ class RuleOracle(rulebookPath: Path):
           answer = Option(aiMsg.text()).getOrElse("I could not find an answer in the rulebook.")
           done = true
 
-      postToSlack(responseUrl, s"$preface\n$answer", trace.toString.trim)
+      val elapsed = (System.currentTimeMillis() - startTime) / 1000
+      postToSlack(responseUrl, s"$preface\n$answer", trace.toString.trim, elapsed)
 
     catch case e: Exception =>
       logger.error("RuleOracle.ask failed", e)
-      postToSlack(responseUrl, s"$preface\nSorry, I encountered an error: ${e.getMessage}", "")
+      val msg = e.getMessage
+      val retryMsg =
+        if msg != null && msg.contains("429") then
+          val retry = "Please retry in ([\\d.]+s)".r.findFirstMatchIn(msg).map(_.group(1))
+          retry.fold("Agent quota exceeded, please try again later.")(t => s"Agent quota exceeded, please try again in $t")
+        else
+          s"Sorry, I encountered an error: $msg"
+      postToSlack(responseUrl, s"$preface\n$retryMsg", "")
 
   private def dispatchTool(name: String, argsJson: String): (String, String) =
     import org.json4s.*
@@ -174,8 +228,12 @@ class RuleOracle(rulebookPath: Path):
         (result, if headings.nonEmpty then headings else "(no headings)")
       case "searchFiles" =>
         val result = searchFiles((args \ "query").extractOpt[String].getOrElse(""))
-        val n      = result.linesIterator.count(_.nonEmpty)
-        (result, if n == 0 then "0 results" else s"$n result(s)")
+        val n      = result.split("\n\n---\n\n").count(_.nonEmpty)
+        (result, if result.startsWith("No matches") then "0 sections" else s"$n section(s)")
+      case "rollDice" =>
+        val spec   = (args \ "spec").extractOpt[String].getOrElse("")
+        val result = rollDice(spec)
+        (result, result)
       case other =>
         (s"Unknown tool: $other", "unknown tool")
 
@@ -239,7 +297,7 @@ class RuleOracle(rulebookPath: Path):
     if current.nonEmpty then chunks += current.toString
     chunks.take(maxBlocks).toList
 
-  private def postToSlack(responseUrl: String, text: String, trace: String): Unit =
+  private def postToSlack(responseUrl: String, text: String, trace: String, elapsed: Long = 0): Unit =
     import org.json4s.*
     import org.json4s.jackson.JsonMethods.*
     implicit val formats: Formats = DefaultFormats
@@ -252,7 +310,7 @@ class RuleOracle(rulebookPath: Path):
       "type"     -> JString("context"),
       "elements" -> JArray(List(JObject(
         "type" -> JString("mrkdwn"),
-        "text" -> JString(s"*Tool trace*\n$trace")
+        "text" -> JString(s"*Tool trace* ($modelName, took ${elapsed}s)\n$trace")
       )))
     )
     val blocks = if trace.nonEmpty then JArray(textBlocks :+ traceBlock)
