@@ -1,7 +1,7 @@
 package ca.dougsparling.gmbot
 
 import ca.dougsparling.gmbot.parser.{RollSpec, RollSpecParser}
-import ca.dougsparling.gmbot.roller.{RollSpecApproximator, _}
+import ca.dougsparling.gmbot.roller.{RollRenderer, RollSpecApproximator, RollSpecRunner, Result, SecureDice, SecureGaussian}
 import ca.dougsparling.gmbot.rulebook.{RulebookFinder, RuleOracle, Found, Ambiguous, NotFound}
 import org.slf4j.{Logger, LoggerFactory}
 import org.json4s.{DefaultFormats, Formats}
@@ -43,18 +43,17 @@ class SlackServlet extends GmBotStack with JacksonJsonSupport {
     val parseResult = RollSpecParser.parseAll(RollSpecParser.roll, req.text)
     logger.info(s"Received $req")
     parseResult match {
-      case RollSpecParser.NoSuccess(msg, next) => helpMessage(msg, req.command)
-      case RollSpecParser.Success(spec, _) if spec.die >= 10000 => Ok(slackResponse(s"Sorry, I can't find a ${spec.die} sided die."))
-      case RollSpecParser.Success(spec, _) if spec.reroll.exists(_.size >= spec.die) => Ok(slackResponse("All dice would be rerolled"))
-      case RollSpecParser.Success(spec, _) if spec.shouldApproximate => {
-        Ok(renderApproximate(req, spec, secureApproximator.approximate(spec)))
-      }
-      case RollSpecParser.Success(spec, _) => {
-        secureRoller.run(spec) match {
-          case Left(rolls) => Ok(renderResult(req, spec, rolls))
-          case Right(err)  => Ok(slackResponse(err))
+      case RollSpecParser.NoSuccess(msg, _) => helpMessage(msg, req.command)
+      case RollSpecParser.Success(spec, _) =>
+        RollRenderer.validateSpec(spec).map(err => Ok(slackResponse(err))).getOrElse {
+          if spec.shouldApproximate then
+            Ok(renderApproximate(req, spec, secureApproximator.approximate(spec)))
+          else
+            secureRoller.run(spec) match {
+              case Left(rolls) => Ok(renderResult(req, spec, rolls))
+              case Right(err)  => Ok(slackResponse(err))
+            }
         }
-      }
     }
   }
 
@@ -95,44 +94,20 @@ class SlackServlet extends GmBotStack with JacksonJsonSupport {
   }
 
   def parseRequest() = {
-    //val reqMap = body.split("\n").map(_.split("=")).map(pair => (pair(0), pair(1))).toMap
     SlackRequest(params("text"), params("command"), params("user_name"), params.getOrElse("response_url", ""), params.getOrElse("user_id", ""))
   }
 
-  def renderResult(request: SlackRequest, spec: RollSpec, rolls: Result) = {
-    val totals = rolls.batches.map(_.sum(spec.modifier)).mkString(", ")
-    val summary = s"Rolled for ${request.who}: $totals"
-    val extended = rolls.batches.map { batch =>
-      val tally = batch.rolls.zipWithIndex.map { case (roll, index) =>
-        roll match {
-          case Roll(n, Kept) => s"$n"
-          case Roll(n, Rerolled) => s"$n (rerolled)"
-          case Roll(n, Dropped) => s"$n (dropped)"
-        }
-      }.mkString(", ")
+  def renderResult(request: SlackRequest, spec: RollSpec, rolls: Result) =
+    slackResponse(
+      RollRenderer.formatSummary(rolls, spec, request.who),
+      RollRenderer.formatBatches(rolls, spec)
+    )
 
-      val modifier = if (spec.modifier == 0) {
-        ""
-      } else {
-        s" + ${spec.modifier}"
-      }
+  def renderApproximate(request: SlackRequest, spec: RollSpec, result: Result) =
+    slackResponse(RollRenderer.formatApproximate(result, spec, request.who))
 
-      val sum = batch.sum(spec.modifier)
-
-      s"$tally$modifier = $sum"
-    }.mkString("\n")
-
-    slackResponse(summary, extended)
-  }
-
-  def renderApproximate(request: SlackRequest, spec: RollSpec, result: Result) = {
-    val totals = result.batches.map(b => s"≈ ${b.sum(spec.modifier)}").mkString(", ")
-    slackResponse(s"Rolled for ${request.who}: $totals _(statistical approximation)_")
-  }
-
-  def helpMessage(hint: String, command: String) = {
-    Ok(slackResponse(s"_Help_: `$command [roll] [a times|x] [x]dy [+z] [reroll i|i to j] [drop highest|lowest [c]]`\ne.g. `roll 4 times 4d6 drop lowest`, `d20 + 15`, `7d10+10 reroll 1 to 2`", hint))
-  }
+  def helpMessage(hint: String, command: String) =
+    Ok(slackResponse(s"_Help_: `$command` — ${RollRenderer.helpText(hint)}"))
 
   def slackResponse(text: String, attachments: String*) = {
     contentType = formats("json")
@@ -143,7 +118,6 @@ class SlackServlet extends GmBotStack with JacksonJsonSupport {
     contentType = formats("json")
     SlackResponse(text, Seq.empty, response_type = "ephemeral")
   }
-
 
 }
 case class SlackRequest(text: String, command: String, who: String, responseUrl: String = "", userId: String = "")

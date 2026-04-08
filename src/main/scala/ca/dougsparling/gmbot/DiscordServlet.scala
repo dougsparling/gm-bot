@@ -1,7 +1,7 @@
 package ca.dougsparling.gmbot
 
-import ca.dougsparling.gmbot.parser.RollSpecParser
-import ca.dougsparling.gmbot.roller.{RollSpecApproximator, RollSpecRunner, SecureDice, SecureGaussian, Kept, Rerolled, Dropped}
+import ca.dougsparling.gmbot.parser.{RollSpec, RollSpecParser, NoDrop, DropLowest, DropHighest}
+import ca.dougsparling.gmbot.roller.{RollRenderer, RollSpecApproximator, RollSpecRunner, SecureDice, SecureGaussian}
 import org.slf4j.LoggerFactory
 import org.json4s._
 import org.json4s.jackson.JsonMethods._
@@ -65,10 +65,39 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
           case "roll" =>
             val spec    = ((json \ "data" \ "options")(0) \ "value").extractOpt[String].getOrElse("")
             val who     = resolveDisplayName(json)
-            val content = handleRoll(spec, who)
-            compact(render(JObject("type" -> JInt(4), "data" -> JObject("content" -> JString(content)))))
+            val content = handleRoll(spec, who, reroll = false)
+            compact(render(rollResponse(content, spec)))
+
+          case "ability" =>
+            val options  = (json \ "data" \ "options").extract[List[JValue]]
+            def opt(name: String) = options.find(o => (o \ "name").extractOpt[String].contains(name))
+            val rollType = opt("roll").flatMap(o => (o \ "value").extractOpt[String]).getOrElse("straight")
+            val modifier = opt("modifier").flatMap(o => (o \ "value").extractOpt[Int]).getOrElse(0)
+            val rollSpec = rollType match
+              case "advantage"    => RollSpec(1, 4, 6, modifier, None, DropLowest(1))
+              case "disadvantage" => RollSpec(1, 4, 6, modifier, None, DropHighest(1))
+              case _              => RollSpec(1, 3, 6, modifier, None, NoDrop)
+            val who     = resolveDisplayName(json)
+            val content = renderRollSpec(rollSpec, who, reroll = false)
+            val specStr = rollType match
+              case "advantage"    => s"4d6${modStr(modifier)} drop lowest"
+              case "disadvantage" => s"4d6${modStr(modifier)} drop highest"
+              case _              => s"3d6${modStr(modifier)}"
+            compact(render(rollResponse(content, specStr)))
+
           case _ =>
             halt(400, "unknown command")
+
+      case 3 =>
+        // MESSAGE_COMPONENT (button)
+        val customId = (json \ "data" \ "custom_id").extractOpt[String].getOrElse("")
+        if customId.startsWith("reroll:") then
+          val spec    = customId.stripPrefix("reroll:")
+          val who     = resolveDisplayName(json)
+          val content = handleRoll(spec, who, reroll = true)
+          compact(render(rollResponse(content, spec)))
+        else
+          halt(400, "unknown component")
 
       case _ =>
         halt(400, "unsupported interaction type")
@@ -89,31 +118,41 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
       .orElse(userUsername)
       .getOrElse("unknown")
 
-  private def handleRoll(spec: String, who: String): String =
+  private def modStr(modifier: Int): String =
+    if modifier > 0 then s"+$modifier"
+    else if modifier < 0 then modifier.toString
+    else ""
+
+  private def rerollButton(spec: String) =
+    JObject("type" -> JInt(1), "components" -> JArray(List(
+      JObject(
+        "type"      -> JInt(2),
+        "label"     -> JString("Reroll"),
+        "style"     -> JInt(1),
+        "custom_id" -> JString(s"reroll:$spec".take(100))
+      )
+    )))
+
+  private def rollResponse(content: String, spec: String) =
+    JObject("type" -> JInt(4), "data" -> JObject(
+      "content"    -> JString(content),
+      "components" -> JArray(List(rerollButton(spec)))
+    ))
+
+  private def handleRoll(spec: String, who: String, reroll: Boolean): String =
     RollSpecParser.parseAll(RollSpecParser.roll, spec) match
-      case RollSpecParser.NoSuccess(_, _) =>
-        "Usage: `/roll [N times] [N]dS [+M] [reroll N|N to M] [drop highest|lowest [N]]`\ne.g. `4d6 drop lowest`, `d20+15`, `7d10 reroll 1 to 2`"
-      case RollSpecParser.Success(rollSpec, _) if rollSpec.die >= 10000 =>
-        s"Sorry, I can't find a ${rollSpec.die} sided die."
-      case RollSpecParser.Success(rollSpec, _) if rollSpec.reroll.exists(_.size >= rollSpec.die) =>
-        "All dice would be rerolled."
-      case RollSpecParser.Success(rollSpec, _) if rollSpec.shouldApproximate =>
-        val result = approximator.approximate(rollSpec)
-        val totals = result.batches.map(b => s"≈ ${b.sum(rollSpec.modifier)}").mkString(", ")
-        s"Rolled for $who: $totals _(statistical approximation)_"
-      case RollSpecParser.Success(rollSpec, _) =>
+      case RollSpecParser.NoSuccess(hint, _) => RollRenderer.helpText(hint)
+      case RollSpecParser.Success(rollSpec, _) => renderRollSpec(rollSpec, who, reroll)
+
+  private def renderRollSpec(rollSpec: RollSpec, who: String, reroll: Boolean): String =
+    val verb = if reroll then "Rerolled" else "Rolled"
+    RollRenderer.validateSpec(rollSpec).getOrElse {
+      if rollSpec.shouldApproximate then
+        RollRenderer.formatApproximate(approximator.approximate(rollSpec), rollSpec, who, verb)
+      else
         roller.run(rollSpec) match
-          case Right(err) => err
+          case Right(err)   => err
           case Left(result) =>
-            val totals  = result.batches.map(_.sum(rollSpec.modifier)).mkString(", ")
-            val details = result.batches.map { batch =>
-              val tally = batch.rolls.map {
-                case r if r.fate == Kept     => s"${r.n}"
-                case r if r.fate == Rerolled => s"${r.n} (rerolled)"
-                case r if r.fate == Dropped  => s"${r.n} (dropped)"
-              }.mkString(", ")
-              val mod = if rollSpec.modifier == 0 then "" else s" + ${rollSpec.modifier}"
-              s"$tally$mod = ${batch.sum(rollSpec.modifier)}"
-            }.mkString("\n")
-            s"Rolled for $who: $totals\n$details"
+            s"${RollRenderer.formatSummary(result, rollSpec, who, verb)}\n${RollRenderer.formatBatches(result, rollSpec)}"
+    }
 }
