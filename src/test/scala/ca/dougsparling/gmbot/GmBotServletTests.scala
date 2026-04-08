@@ -4,7 +4,7 @@ import org.scalatra.test.scalatest._
 
 class GmBotServletTests extends ScalatraFunSuite {
 
-  addServlet(classOf[GmBotServlet], "/*")
+  addServlet(classOf[SlackServlet], "/*")
 
   test("GET / on GmBotServlet should return status 200") {
     get("/") {

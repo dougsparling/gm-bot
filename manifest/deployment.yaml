@@ -49,6 +49,8 @@ spec:
             secretKeyRef:
               name: gm-bot-secrets
               key: LLM_MODEL
+        - name: DISCORD_PUBLIC_KEY
+          value: e412eb27351ffed20cf0dcf71f7bd4de9c201f7c5947bb2a6e4c88480e28714e
         - name: RULEBOOKS_PATH
           value: /rulebooks
         volumeMounts:

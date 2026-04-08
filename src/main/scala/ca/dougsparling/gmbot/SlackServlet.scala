@@ -11,7 +11,7 @@ import org.scalatra.Ok
 import java.nio.file.{Path, Paths}
 import scala.concurrent.{ExecutionContext, Future}
 
-class GmBotServlet extends GmBotStack with JacksonJsonSupport {
+class SlackServlet extends GmBotStack with JacksonJsonSupport {
 
   protected lazy val logger =  LoggerFactory.getLogger(getClass)
   protected implicit lazy val jsonFormats: Formats = DefaultFormats

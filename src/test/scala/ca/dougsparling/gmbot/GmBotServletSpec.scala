@@ -12,7 +12,7 @@ class GmBotServletSpec extends ScalatraSpec { def is = s2"""
     should approximate when too many faces are rerolled     $postRollApproxManyRerolls
   """
 
-  addServlet(classOf[GmBotServlet], "/*")
+  addServlet(classOf[SlackServlet], "/*")
 
   def postRoll200 = postRoll("5d6") {
     status must_== 200
