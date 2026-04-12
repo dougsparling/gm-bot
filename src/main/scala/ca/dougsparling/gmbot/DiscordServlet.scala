@@ -1,12 +1,11 @@
 package ca.dougsparling.gmbot
 
 import ca.dougsparling.gmbot.parser.{RollSpec, RollSpecParser, NoDrop, DropLowest, DropHighest}
-import ca.dougsparling.gmbot.roller.{RollRenderer, RollSpecApproximator, RollSpecRunner, SecureDice, SecureGaussian}
+import ca.dougsparling.gmbot.roller.RollRenderer
 import org.slf4j.LoggerFactory
 import org.json4s._
 import org.json4s.jackson.JsonMethods._
 import org.scalatra.json._
-import org.scalatra.Ok
 
 import java.security.{KeyFactory, Signature}
 import java.security.spec.X509EncodedKeySpec
@@ -15,8 +14,6 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
 
   protected lazy val logger = LoggerFactory.getLogger(getClass)
   protected implicit lazy val jsonFormats: Formats = DefaultFormats
-  protected lazy val roller       = new RollSpecRunner with SecureDice
-  protected lazy val approximator = new RollSpecApproximator with SecureGaussian
 
   private lazy val publicKeyHex = sys.env("DISCORD_PUBLIC_KEY").trim
 
@@ -59,14 +56,12 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
         compact(render(JObject("type" -> JInt(1))))
 
       case 2 =>
-        // APPLICATION_COMMAND
         val commandName = (json \ "data" \ "name").extractOpt[String].getOrElse("")
         commandName match
           case "roll" =>
-            val spec    = ((json \ "data" \ "options")(0) \ "value").extractOpt[String].getOrElse("")
+            val specStr = ((json \ "data" \ "options")(0) \ "value").extractOpt[String].getOrElse("")
             val who     = resolveDisplayName(json)
-            val content = handleRoll(spec, who, reroll = false)
-            compact(render(rollResponse(content, spec)))
+            executeRoll(specStr, who)
 
           case "ability" =>
             val options  = (json \ "data" \ "options").extract[List[JValue]]
@@ -77,13 +72,8 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
               case "advantage"    => RollSpec(1, 4, 6, modifier, None, DropLowest(1))
               case "disadvantage" => RollSpec(1, 4, 6, modifier, None, DropHighest(1))
               case _              => RollSpec(1, 3, 6, modifier, None, NoDrop)
-            val who     = resolveDisplayName(json)
-            val content = renderRollSpec(rollSpec, who, reroll = false)
-            val specStr = rollType match
-              case "advantage"    => s"4d6${modStr(modifier)} drop lowest"
-              case "disadvantage" => s"4d6${modStr(modifier)} drop highest"
-              case _              => s"3d6${modStr(modifier)}"
-            compact(render(rollResponse(content, specStr)))
+            val who = resolveDisplayName(json)
+            compact(render(rollResponse(RollRenderer.render(rollSpec, who), rollSpec.toSpec)))
 
           case _ =>
             halt(400, "unknown command")
@@ -92,16 +82,22 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
         // MESSAGE_COMPONENT (button)
         val customId = (json \ "data" \ "custom_id").extractOpt[String].getOrElse("")
         if customId.startsWith("reroll:") then
-          val spec    = customId.stripPrefix("reroll:")
-          val who     = resolveDisplayName(json)
-          val content = handleRoll(spec, who, reroll = true)
-          compact(render(rollResponse(content, spec)))
+          val who = resolveDisplayName(json)
+          executeRoll(customId.stripPrefix("reroll:"), who, verb = "Rerolled")
         else
           halt(400, "unknown component")
 
       case _ =>
         halt(400, "unsupported interaction type")
   }
+
+  /** Parses a spec string, renders the roll, and wraps in a Discord response with reroll button. */
+  private def executeRoll(specStr: String, who: String, verb: String = "Rolled"): String =
+    RollSpecParser.parseAll(RollSpecParser.roll, specStr) match
+      case RollSpecParser.NoSuccess(hint, _) =>
+        compact(render(plainResponse(RollRenderer.helpText(hint))))
+      case RollSpecParser.Success(rollSpec, _) =>
+        compact(render(rollResponse(RollRenderer.render(rollSpec, who, verb), rollSpec.toSpec)))
 
   private def resolveDisplayName(json: JValue): String =
     // Guild context: member.nick > member.user.global_name > member.user.username
@@ -119,9 +115,7 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
       .getOrElse("unknown")
 
   private def modStr(modifier: Int): String =
-    if modifier > 0 then s"+$modifier"
-    else if modifier < 0 then modifier.toString
-    else ""
+    if modifier > 0 then s"+$modifier" else if modifier < 0 then modifier.toString else ""
 
   private def rerollButton(spec: String) =
     JObject("type" -> JInt(1), "components" -> JArray(List(
@@ -139,20 +133,6 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
       "components" -> JArray(List(rerollButton(spec)))
     ))
 
-  private def handleRoll(spec: String, who: String, reroll: Boolean): String =
-    RollSpecParser.parseAll(RollSpecParser.roll, spec) match
-      case RollSpecParser.NoSuccess(hint, _) => RollRenderer.helpText(hint)
-      case RollSpecParser.Success(rollSpec, _) => renderRollSpec(rollSpec, who, reroll)
-
-  private def renderRollSpec(rollSpec: RollSpec, who: String, reroll: Boolean): String =
-    val verb = if reroll then "Rerolled" else "Rolled"
-    RollRenderer.validateSpec(rollSpec).getOrElse {
-      if rollSpec.shouldApproximate then
-        RollRenderer.formatApproximate(approximator.approximate(rollSpec), rollSpec, who, verb)
-      else
-        roller.run(rollSpec) match
-          case Right(err)   => err
-          case Left(result) =>
-            s"${RollRenderer.formatSummary(result, rollSpec, who, verb)}\n${RollRenderer.formatBatches(result, rollSpec)}"
-    }
+  private def plainResponse(content: String) =
+    JObject("type" -> JInt(4), "data" -> JObject("content" -> JString(content)))
 }

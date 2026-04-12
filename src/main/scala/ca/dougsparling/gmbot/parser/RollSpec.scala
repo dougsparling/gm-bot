@@ -6,6 +6,21 @@ package ca.dougsparling.gmbot.parser
 case class RollSpec(repeat: Int, number: Int, die: Int, modifier: Int, reroll: Option[Range], drop: Drop) {
   def shouldReroll(roll: Int) = reroll.exists(_.contains(roll))
 
+  def toSpec: String =
+    val repeatPart = if repeat == 1 then "" else s"$repeat times "
+    val dicePart   = if number == 1 then s"d$die" else s"${number}d$die"
+    val modPart    = if modifier > 0 then s"+$modifier" else if modifier < 0 then modifier.toString else ""
+    val rerollPart = reroll.fold("") { r =>
+      if r.size == 1 then s" reroll ${r.head}" else s" reroll ${r.head} to ${r.last}"
+    }
+    val dropPart   = drop match
+      case NoDrop         => ""
+      case DropLowest(1)  => " drop lowest"
+      case DropLowest(n)  => s" drop lowest $n"
+      case DropHighest(1) => " drop highest"
+      case DropHighest(n) => s" drop highest $n"
+    s"$repeatPart$dicePart$modPart$rerollPart$dropPart"
+
   def shouldApproximate: Boolean = {
     val rerollCount = reroll.fold(0)(_.size)
     val keptFaces = die - rerollCount

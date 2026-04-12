@@ -4,6 +4,9 @@ import ca.dougsparling.gmbot.parser.RollSpec
 
 object RollRenderer:
 
+  private lazy val roller       = new RollSpecRunner with SecureDice
+  private lazy val approximator = new RollSpecApproximator with SecureGaussian
+
   /** Returns an error message if the spec fails validation, None if it can proceed. */
   def validateSpec(spec: RollSpec): Option[String] =
     if spec.die >= 10000 then Some(s"Sorry, I can't find a ${spec.die} sided die.")
@@ -15,6 +18,21 @@ object RollRenderer:
     val base = "Usage: `[N times] [N]dS [+M] [reroll N|N to M] [drop highest|lowest [N]]`\n" +
                "e.g. `4d6 drop lowest`, `d20+15`, `7d10 reroll 1 to 2`"
     if hint.nonEmpty then s"$base\n$hint" else base
+
+  /**
+   * Executes a roll and returns a fully rendered string.
+   * Handles validation, approximation, and Left/Right from the runner.
+   * verb defaults to "Rolled"; pass "Rerolled" for reroll responses.
+   */
+  def render(spec: RollSpec, who: String, verb: String = "Rolled"): String =
+    validateSpec(spec).getOrElse {
+      if spec.shouldApproximate then
+        formatApproximate(approximator.approximate(spec), spec, who, verb)
+      else
+        roller.run(spec) match
+          case Right(err)   => err
+          case Left(result) => s"${formatSummary(result, spec, who, verb)}\n${formatBatches(result, spec)}"
+    }
 
   /** "Rolled for Alice: 14, 12" — verb defaults to "Rolled". */
   def formatSummary(result: Result, spec: RollSpec, who: String, verb: String = "Rolled"): String =
