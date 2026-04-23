@@ -68,12 +68,13 @@ class DiscordServlet extends GmBotStack with JacksonJsonSupport {
             def opt(name: String) = options.find(o => (o \ "name").extractOpt[String].contains(name))
             val rollType = opt("roll").flatMap(o => (o \ "value").extractOpt[String]).getOrElse("straight")
             val modifier = opt("modifier").flatMap(o => (o \ "value").extractOpt[Int]).getOrElse(0)
+            val label    = opt("ability").flatMap(o => (o \ "value").extractOpt[String])
             val rollSpec = rollType match
               case "advantage"    => RollSpec(1, 4, 6, modifier, None, DropLowest(1))
               case "disadvantage" => RollSpec(1, 4, 6, modifier, None, DropHighest(1))
               case _              => RollSpec(1, 3, 6, modifier, None, NoDrop)
             val who = resolveDisplayName(json)
-            compact(render(rollResponse(RollRenderer.render(rollSpec, who), rollSpec.toSpec)))
+            compact(render(rollResponse(RollRenderer.render(rollSpec, who, label = label), rollSpec.toSpec)))
 
           case _ =>
             halt(400, "unknown command")

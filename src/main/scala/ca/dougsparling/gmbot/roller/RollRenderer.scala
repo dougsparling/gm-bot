@@ -24,25 +24,27 @@ object RollRenderer:
    * Handles validation, approximation, and Left/Right from the runner.
    * verb defaults to "Rolled"; pass "Rerolled" for reroll responses.
    */
-  def render(spec: RollSpec, who: String, verb: String = "Rolled"): String =
+  def render(spec: RollSpec, who: String, verb: String = "Rolled", label: Option[String] = None): String =
     validateSpec(spec).getOrElse {
       if spec.shouldApproximate then
-        formatApproximate(approximator.approximate(spec), spec, who, verb)
+        formatApproximate(approximator.approximate(spec), spec, who, verb, label)
       else
         roller.run(spec) match
           case Right(err)   => err
-          case Left(result) => s"${formatSummary(result, spec, who, verb)}\n${formatBatches(result, spec)}"
+          case Left(result) => s"${formatSummary(result, spec, who, verb, label)}\n${formatBatches(result, spec)}"
     }
 
-  /** "Rolled for Alice: 14, 12" — verb defaults to "Rolled". */
-  def formatSummary(result: Result, spec: RollSpec, who: String, verb: String = "Rolled"): String =
-    val totals = result.batches.map(_.sum(spec.modifier)).mkString(", ")
-    s"$verb for $who: $totals"
+  /** "Rolled for Alice: 14, 12" or "Rolled Might for Alice: 14, 12" when label is given. */
+  def formatSummary(result: Result, spec: RollSpec, who: String, verb: String = "Rolled", label: Option[String] = None): String =
+    val totals  = result.batches.map(_.sum(spec.modifier)).mkString(", ")
+    val subject = label.fold(s"$verb for")(l => s"$verb $l for")
+    s"$subject $who: $totals"
 
   /** "Rolled for Alice: ≈14 _(statistical approximation)_" */
-  def formatApproximate(result: Result, spec: RollSpec, who: String, verb: String = "Rolled"): String =
-    val totals = result.batches.map(b => s"≈ ${b.sum(spec.modifier)}").mkString(", ")
-    s"$verb for $who: $totals _(statistical approximation)_"
+  def formatApproximate(result: Result, spec: RollSpec, who: String, verb: String = "Rolled", label: Option[String] = None): String =
+    val totals  = result.batches.map(b => s"≈ ${b.sum(spec.modifier)}").mkString(", ")
+    val subject = label.fold(s"$verb for")(l => s"$verb $l for")
+    s"$subject $who: $totals _(statistical approximation)_"
 
   /** Per-batch detail lines, e.g. "2, 5 (dropped), 4 = 11\n3, 6 = 9" */
   def formatBatches(result: Result, spec: RollSpec): String =
